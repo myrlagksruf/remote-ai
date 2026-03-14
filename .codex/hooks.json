@@ -1,0 +1,37 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash REPLACE_ME_WITH_PROJECT_ROOT/hooks/codex-hook.sh session_start",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash REPLACE_ME_WITH_PROJECT_ROOT/hooks/codex-hook.sh stop",
+						"timeout": 30
+					}
+				]
+			}
+		],
+		"AfterToolUse": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash REPLACE_ME_WITH_PROJECT_ROOT/hooks/codex-hook.sh after_tool",
+						"timeout": 10
+					}
+				]
+			}
+		]
+	}
+}

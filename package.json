@@ -1,0 +1,30 @@
+{
+	"name": "remote-ai",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsgo",
+		"check": "tsgo --noEmit",
+		"lint": "biome check",
+		"format": "biome format",
+		"dev:bridge": "tsx watch src/bridge/index.ts",
+		"dev:bot": "tsx watch src/bot/index.ts",
+		"start:bridge": "node dist/bridge/index.js",
+		"start:bot": "node dist/bot/index.js"
+	},
+	"dependencies": {
+		"discord.js": "^14.25.1",
+		"dotenv": "^17.3.1",
+		"fastify": "^5.8.2"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.7",
+		"@types/node": "^25.5.0",
+		"@typescript/native-preview": "^7.0.0-dev.20260313.1",
+		"tsx": "^4.21.0"
+	},
+	"engines": {
+		"node": ">=25"
+	}
+}
