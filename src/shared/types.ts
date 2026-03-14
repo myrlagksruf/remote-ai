@@ -16,6 +16,8 @@ export type PendingRequestType = "ai_question" | "permission_request";
 
 export type PermissionMode = "default" | "auto" | "manual";
 
+export type BridgeMessageLevel = "assistant" | "system_info" | "system_error";
+
 export type SessionStatus =
 	| "active"
 	| "waiting_input"
@@ -26,6 +28,7 @@ export interface BridgeEventData {
 	message?: string;
 	toolName?: string;
 	toolInput?: Record<string, unknown>;
+	messageLevel?: BridgeMessageLevel;
 }
 
 export interface BridgeEvent {
@@ -56,6 +59,12 @@ export interface PendingRequest {
 	allowed?: boolean;
 }
 
+export interface CodexSessionState {
+	cwd?: string;
+	hasInFlightResume: boolean;
+	lastResumeStartedAt?: string;
+}
+
 export interface Session {
 	sessionId: string;
 	tool: ToolName;
@@ -66,8 +75,19 @@ export interface Session {
 	pendingRequests: Map<string, PendingRequest>;
 	createdAt: string;
 	lastActivity: string;
+	codex?: CodexSessionState;
 }
 
 export interface SerializableSession extends Omit<Session, "pendingRequests"> {
 	pendingRequests: PendingRequest[];
+}
+
+export interface BridgeInputResponse {
+	ok: boolean;
+	accepted?: boolean;
+	started?: boolean;
+	busy?: boolean;
+	reason?: string;
+	pendingRequest?: PendingRequest;
+	note?: string;
 }

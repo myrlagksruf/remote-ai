@@ -6,7 +6,7 @@ import {
 } from "discord.js";
 
 import type { BotConfig } from "../shared/config.js";
-import type { UserInputPayload } from "../shared/types.js";
+import type { BridgeInputResponse, UserInputPayload } from "../shared/types.js";
 import type { PendingRequestStore } from "./pendingRequests.js";
 import type { ThreadManager } from "./threadManager.js";
 
@@ -20,7 +20,11 @@ interface CommandHandlerDeps {
 async function postUserInput(
 	config: BotConfig,
 	payload: UserInputPayload,
-): Promise<void> {
+): Promise<{
+	ok: boolean;
+	status: number;
+	body: BridgeInputResponse;
+}> {
 	const response = await fetch(`${config.bridgeBaseUrl}/input`, {
 		method: "POST",
 		headers: {
@@ -29,13 +33,19 @@ async function postUserInput(
 		},
 		body: JSON.stringify(payload),
 	});
+	const contentType = response.headers.get("content-type") ?? "";
+	const body = contentType.includes("application/json")
+		? ((await response.json()) as BridgeInputResponse)
+		: {
+				ok: response.ok,
+				reason: await response.text(),
+			};
 
-	if (!response.ok) {
-		const details = await response.text();
-		throw new Error(
-			`Bridge input delivery failed (${response.status} ${response.statusText}): ${details}`,
-		);
-	}
+	return {
+		ok: response.ok,
+		status: response.status,
+		body,
+	};
 }
 
 async function handleThreadMessage(
@@ -58,12 +68,27 @@ async function handleThreadMessage(
 	}
 
 	const requestId = pendingRequests.consumeAwaitingText(message.channelId);
-	await postUserInput(config, {
+	const inputResult = await postUserInput(config, {
 		sessionId,
 		requestId,
 		type: requestId ? "text_response" : "direct_prompt",
 		content: message.content,
 	});
+
+	if (requestId || inputResult.ok) {
+		return;
+	}
+
+	const reason =
+		inputResult.body.reason ?? "Bridge가 요청을 처리하지 못했습니다.";
+	if (inputResult.body.busy) {
+		await message.channel.send(
+			"⏳ Codex 세션이 이미 다른 후속 요청을 처리 중입니다. 현재 turn이 끝난 뒤 다시 보내주세요.",
+		);
+		return;
+	}
+
+	await message.channel.send(`⚠️ 요청을 전달하지 못했습니다.\n${reason}`);
 }
 
 async function handleButtonInteraction(

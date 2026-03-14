@@ -17,7 +17,13 @@ export function createBotServer(params: {
 		} catch (error) {
 			request.log.error({ err: error }, "Failed to process bridge event.");
 			reply.code(500);
-			return { ok: false };
+			return {
+				ok: false,
+				error:
+					error instanceof Error
+						? error.message
+						: "Unknown bot event processing error.",
+			};
 		}
 	});
 

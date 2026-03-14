@@ -58,6 +58,7 @@ const server = createBotServer({
 });
 
 await client.login(config.discordToken);
+await threadManager.validateParentChannelAccess();
 const address = await server.listen({
 	host: config.botHost,
 	port: config.botPort,

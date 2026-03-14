@@ -1,6 +1,7 @@
 import {
 	ChannelType,
 	type Client,
+	PermissionsBitField,
 	TextChannel,
 	ThreadAutoArchiveDuration,
 	type ThreadChannel,
@@ -21,6 +22,49 @@ export class ThreadManager {
 		return this.threadToSession.get(threadId);
 	}
 
+	async validateParentChannelAccess(): Promise<TextChannel> {
+		const parentChannel = await this.client.channels.fetch(
+			this.parentChannelId,
+		);
+		if (!(parentChannel instanceof TextChannel)) {
+			throw new Error(
+				`DISCORD_CHANNEL_ID must point to a guild text channel. Received ${parentChannel?.type ?? "unknown"}.`,
+			);
+		}
+
+		const botUserId = this.client.user?.id;
+		if (!botUserId) {
+			throw new Error("Discord client is not ready.");
+		}
+
+		const permissions = parentChannel.permissionsFor(botUserId);
+		if (!permissions) {
+			throw new Error(
+				`Unable to resolve permissions for bot user ${botUserId} in channel ${this.parentChannelId}.`,
+			);
+		}
+
+		const requiredPermissions = [
+			[PermissionsBitField.Flags.ViewChannel, "ViewChannel"],
+			[PermissionsBitField.Flags.SendMessages, "SendMessages"],
+			[PermissionsBitField.Flags.CreatePublicThreads, "CreatePublicThreads"],
+			[
+				PermissionsBitField.Flags.SendMessagesInThreads,
+				"SendMessagesInThreads",
+			],
+		] as const;
+		const missingPermissions = requiredPermissions
+			.filter(([permission]) => !permissions.has(permission))
+			.map(([, permissionName]) => permissionName);
+		if (missingPermissions.length > 0) {
+			throw new Error(
+				`Bot is missing required permissions in DISCORD_CHANNEL_ID=${this.parentChannelId}: ${missingPermissions.join(", ")}.`,
+			);
+		}
+
+		return parentChannel;
+	}
+
 	async ensureThread(
 		sessionId: string,
 		sessionName: string,
@@ -34,14 +78,7 @@ export class ThreadManager {
 			}
 		}
 
-		const parentChannel = await this.client.channels.fetch(
-			this.parentChannelId,
-		);
-		if (!(parentChannel instanceof TextChannel)) {
-			throw new Error(
-				`DISCORD_CHANNEL_ID must point to a text channel. Received ${parentChannel?.type ?? "unknown"}.`,
-			);
-		}
+		const parentChannel = await this.validateParentChannelAccess();
 
 		const thread = await parentChannel.threads.create({
 			name: sessionName,

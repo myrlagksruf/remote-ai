@@ -50,7 +50,13 @@ export function formatEventMessage(event: BridgeEvent): BaseMessageOptions {
 			};
 		case "response_complete": {
 			const message = event.data.message ?? "응답 내용이 비어 있습니다.";
-			const content = ["✅ **작업 완료**", "", message].join("\n");
+			const title =
+				event.data.messageLevel === "system_error"
+					? "⚠️ **시스템 오류**"
+					: event.data.messageLevel === "system_info"
+						? "ℹ️ **시스템 안내**"
+						: "✅ **작업 완료**";
+			const content = [title, "", message].join("\n");
 			if (content.length > DISCORD_MESSAGE_LIMIT) {
 				return buildLongResponseAttachment(message);
 			}

@@ -1,7 +1,8 @@
 import Fastify from "fastify";
 
 import { loadBridgeConfig } from "../shared/config.js";
-import type { UserInputPayload } from "../shared/types.js";
+import type { BridgeInputResponse, UserInputPayload } from "../shared/types.js";
+import { startCodexResume } from "./codexRunner.js";
 import { buildBridgeEvent, parseHookEvent } from "./eventParser.js";
 import { notifyBot } from "./inputRouter.js";
 import { SessionManager } from "./sessionManager.js";
@@ -36,6 +37,33 @@ function readExistingSessionId(body: unknown): string | undefined {
 	return undefined;
 }
 
+function readCodexSessionCwd(body: unknown): string | undefined {
+	if (typeof body !== "object" || body === null) {
+		return undefined;
+	}
+
+	const topLevel = body as { data?: unknown };
+	if (typeof topLevel.data !== "object" || topLevel.data === null) {
+		return undefined;
+	}
+
+	const data = topLevel.data as Record<string, unknown>;
+	for (const key of [
+		"cwd",
+		"workdir",
+		"workspace_root",
+		"workspaceRoot",
+		"project_root",
+	]) {
+		const value = data[key];
+		if (typeof value === "string" && value.trim()) {
+			return value;
+		}
+	}
+
+	return undefined;
+}
+
 app.addHook("preHandler", async (request, reply) => {
 	if (request.method !== "POST") {
 		return;
@@ -60,6 +88,13 @@ async function processHookPayload(body: unknown) {
 		name: parsed.sessionName,
 	});
 
+	if (parsed.tool === "codex") {
+		const cwd = readCodexSessionCwd(body);
+		if (cwd) {
+			sessionManager.setCodexCwd(session.sessionId, cwd);
+		}
+	}
+
 	if (isNew && parsed.normalizedEvent !== "session_start") {
 		const sessionStartEvent = buildBridgeEvent({
 			tool: session.tool,
@@ -79,8 +114,17 @@ async function processHookPayload(body: unknown) {
 		requestId = pendingRequest.requestId;
 	} else if (parsed.normalizedEvent === "session_end") {
 		sessionManager.endSession(session.sessionId);
+		if (parsed.tool === "codex") {
+			sessionManager.markCodexResumeFinished(session.sessionId);
+		}
 	} else {
 		sessionManager.setStatus(session.sessionId, "active");
+		if (
+			parsed.tool === "codex" &&
+			parsed.normalizedEvent === "response_complete"
+		) {
+			sessionManager.markCodexResumeFinished(session.sessionId);
+		}
 	}
 
 	if (parsed.normalizedEvent === "after_tool") {
@@ -115,21 +159,67 @@ app.post("/hook/claude", async (request) => processHookPayload(request.body));
 app.post("/hook/codex", async (request) => processHookPayload(request.body));
 
 app.post<{ Body: UserInputPayload }>("/input", async (request, reply) => {
+	if (request.body.type === "direct_prompt") {
+		const session = sessionManager.getSession(request.body.sessionId);
+		if (!session) {
+			reply.code(404);
+			return {
+				ok: false,
+				reason: `Unknown session: ${request.body.sessionId}`,
+			} satisfies BridgeInputResponse;
+		}
+
+		if (session.tool !== "codex") {
+			reply.code(400);
+			return {
+				ok: false,
+				reason: `Direct prompts are only supported for Codex sessions in this bridge.`,
+			} satisfies BridgeInputResponse;
+		}
+
+		if (!request.body.content?.trim()) {
+			reply.code(400);
+			return {
+				ok: false,
+				reason: "Prompt content is required for Codex resume execution.",
+			} satisfies BridgeInputResponse;
+		}
+
+		const startResult = await startCodexResume({
+			config,
+			sessionManager,
+			sessionId: session.sessionId,
+			prompt: request.body.content,
+		});
+
+		if (!startResult.ok) {
+			reply.code(startResult.busy ? 409 : 500);
+			return {
+				ok: false,
+				busy: startResult.busy,
+				reason: startResult.reason,
+			} satisfies BridgeInputResponse;
+		}
+
+		reply.code(202);
+		return {
+			ok: true,
+			accepted: true,
+			started: true,
+		} satisfies BridgeInputResponse;
+	}
+
 	const result = sessionManager.resolveInput(request.body);
 	if (!result.ok) {
 		reply.code(404);
-		return result;
+		return result satisfies BridgeInputResponse;
 	}
 
 	return {
 		ok: true,
 		accepted: true,
 		pendingRequest: result.pendingRequest,
-		note:
-			request.body.type === "direct_prompt"
-				? "Prompt accepted, but forwarding direct prompts to AI sessions is not implemented in this skeleton."
-				: undefined,
-	};
+	} satisfies BridgeInputResponse;
 });
 
 app.get("/sessions", async () => ({

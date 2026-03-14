@@ -24,6 +24,12 @@ interface ResolveInputResult {
 	pendingRequest?: PendingRequest;
 }
 
+interface CodexResumeStartResult {
+	ok: boolean;
+	reason?: string;
+	session?: Session;
+}
+
 export class SessionManager {
 	private readonly sessions = new Map<string, Session>();
 
@@ -53,6 +59,12 @@ export class SessionManager {
 			pendingRequests: new Map<string, PendingRequest>(),
 			createdAt: now,
 			lastActivity: now,
+			codex:
+				params.tool === "codex"
+					? {
+							hasInFlightResume: false,
+						}
+					: undefined,
 		};
 
 		this.sessions.set(params.sessionId, session);
@@ -66,6 +78,57 @@ export class SessionManager {
 		}
 
 		session.status = status;
+		session.lastActivity = new Date().toISOString();
+	}
+
+	setCodexCwd(sessionId: string, cwd: string): void {
+		const session = this.sessions.get(sessionId);
+		if (!session || session.tool !== "codex") {
+			return;
+		}
+
+		session.codex ??= { hasInFlightResume: false };
+		session.codex.cwd = cwd;
+		session.lastActivity = new Date().toISOString();
+	}
+
+	markCodexResumeStarted(sessionId: string): CodexResumeStartResult {
+		const session = this.sessions.get(sessionId);
+		if (!session) {
+			return { ok: false, reason: `Unknown session: ${sessionId}` };
+		}
+
+		if (session.tool !== "codex") {
+			return {
+				ok: false,
+				reason: `Session ${sessionId} does not support Codex resume execution.`,
+			};
+		}
+
+		session.codex ??= { hasInFlightResume: false };
+		if (session.codex.hasInFlightResume) {
+			return {
+				ok: false,
+				reason: `Codex session ${sessionId} is already processing another resume request.`,
+			};
+		}
+
+		const now = new Date().toISOString();
+		session.codex.hasInFlightResume = true;
+		session.codex.lastResumeStartedAt = now;
+		session.lastActivity = now;
+		session.status = "active";
+
+		return { ok: true, session };
+	}
+
+	markCodexResumeFinished(sessionId: string): void {
+		const session = this.sessions.get(sessionId);
+		if (!session || session.tool !== "codex" || !session.codex) {
+			return;
+		}
+
+		session.codex.hasInFlightResume = false;
 		session.lastActivity = new Date().toISOString();
 	}
 
