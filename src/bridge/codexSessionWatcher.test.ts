@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { tmpdir } from "node:os";
 
 import type { BridgeConfig } from "../shared/config.js";
 import { CodexSessionWatcher } from "./codexSessionWatcher.js";
@@ -88,6 +90,17 @@ async function processLine(
 		fileState,
 		notify,
 	);
+}
+
+async function primeFile(
+	watcher: CodexSessionWatcher,
+	filePath: string,
+): Promise<void> {
+	await (
+		watcher as unknown as {
+			primeFile(path: string): Promise<void>;
+		}
+	).primeFile(filePath);
 }
 
 test("emits session_start from session_meta", async () => {
@@ -224,6 +237,41 @@ test("emits response_complete once for duplicated final answers", async () => {
 		};
 		assert.equal(event.event, "response_complete");
 		assert.equal(event.data.message, "최종 응답입니다.");
+	} finally {
+		harness.snapshotCleanup();
+	}
+});
+
+test("primeFile reads long session_meta lines without truncating session id", async () => {
+	const harness = createWatcherHarness();
+	const tempDir = await mkdtemp(path.join(tmpdir(), "remote-ai-watcher-"));
+	const filePath = path.join(tempDir, "session.jsonl");
+	const longInstructions = "x".repeat(8000);
+
+	try {
+		await writeFile(
+			filePath,
+			`${JSON.stringify({
+				timestamp: "2026-03-18T00:00:00.000Z",
+				type: "session_meta",
+				payload: {
+					id: "session-long-1234",
+					cwd: harness.cwd,
+					base_instructions: { text: longInstructions },
+				},
+			})}\n`,
+			"utf8",
+		);
+
+		await primeFile(harness.watcher, filePath);
+
+		assert.equal(harness.events.length, 0);
+		const fileStates = (
+			harness.watcher as unknown as {
+				fileStates: Map<string, TestFileState>;
+			}
+		).fileStates;
+		assert.equal(fileStates.get(filePath)?.sessionId, "session-long-1234");
 	} finally {
 		harness.snapshotCleanup();
 	}

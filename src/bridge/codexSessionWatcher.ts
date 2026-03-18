@@ -183,14 +183,27 @@ async function readFirstLine(filePath: string): Promise<string | null> {
 			return null;
 		}
 
-		const maxBytes = Math.min(size, 4096);
-		const buffer = Buffer.alloc(maxBytes);
-		const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
-		const text = buffer.subarray(0, bytesRead).toString("utf8");
-		const newlineIndex = text.indexOf("\n");
-		return (
-			(newlineIndex >= 0 ? text.slice(0, newlineIndex) : text).trim() || null
-		);
+		const chunkSize = 4096;
+		let offset = 0;
+		let text = "";
+
+		while (offset < size) {
+			const bytesToRead = Math.min(chunkSize, size - offset);
+			const buffer = Buffer.alloc(bytesToRead);
+			const { bytesRead } = await handle.read(buffer, 0, bytesToRead, offset);
+			if (bytesRead <= 0) {
+				break;
+			}
+
+			offset += bytesRead;
+			text += buffer.subarray(0, bytesRead).toString("utf8");
+			const newlineIndex = text.indexOf("\n");
+			if (newlineIndex >= 0) {
+				return text.slice(0, newlineIndex).trim() || null;
+			}
+		}
+
+		return text.trim() || null;
 	} finally {
 		await handle.close();
 	}
