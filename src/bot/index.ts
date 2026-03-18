@@ -30,6 +30,18 @@ registerCommandHandlers({
 });
 
 async function handleBridgeEvent(event: BridgeEvent): Promise<void> {
+	console.log(
+		JSON.stringify({
+			scope: "bot_event",
+			stage: "received",
+			event: event.event,
+			tool: event.tool,
+			sessionId: event.sessionId,
+			sessionName: event.sessionName,
+			messagePreview: event.data.message?.slice(0, 160),
+		}),
+	);
+
 	const thread = await threadManager.ensureThread(
 		event.sessionId,
 		event.sessionName,
@@ -41,6 +53,16 @@ async function handleBridgeEvent(event: BridgeEvent): Promise<void> {
 	}
 
 	await thread.send(formatEventMessage(event));
+	console.log(
+		JSON.stringify({
+			scope: "bot_event",
+			stage: "sent",
+			event: event.event,
+			tool: event.tool,
+			sessionId: event.sessionId,
+			threadId: thread.id,
+		}),
+	);
 
 	if (event.event === "session_end") {
 		pendingRequests.clearThread(thread.id);

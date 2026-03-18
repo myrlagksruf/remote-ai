@@ -65,6 +65,14 @@ export interface CodexSessionState {
 	lastResumeStartedAt?: string;
 }
 
+export interface CodexWatcherDiagnostics {
+	sessionsDir: string;
+	lastScanAt: string | null;
+	trackedFiles: number;
+	lastProcessedFile: string | null;
+	lastProcessedOffset: number;
+}
+
 export interface Session {
 	sessionId: string;
 	tool: ToolName;

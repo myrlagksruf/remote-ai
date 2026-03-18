@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { homedir } from "node:os";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -7,6 +9,8 @@ const DEFAULT_BRIDGE_HOST = "127.0.0.1";
 const DEFAULT_BRIDGE_PORT = 3000;
 const DEFAULT_BOT_HOST = "127.0.0.1";
 const DEFAULT_BOT_PORT = 3001;
+const DEFAULT_CODEX_HOME = path.join(homedir(), ".codex");
+const DEFAULT_CODEX_WATCH_INTERVAL_MS = 1000;
 
 export interface BridgeConfig {
 	bridgeHost: string;
@@ -14,6 +18,9 @@ export interface BridgeConfig {
 	bridgeSecret: string;
 	bridgeBaseUrl: string;
 	botBaseUrl: string;
+	codexHome: string;
+	codexSessionsDir: string;
+	codexWatchIntervalMs: number;
 }
 
 export interface BotConfig {
@@ -65,6 +72,11 @@ export function loadBridgeConfig(): BridgeConfig {
 	const botHost = readStringEnv("BOT_HOST", DEFAULT_BOT_HOST);
 	const botPort = readNumberEnv("BOT_PORT", DEFAULT_BOT_PORT);
 	const bridgeSecret = readRequiredEnv("BRIDGE_SECRET");
+	const codexHome = readStringEnv("CODEX_HOME", DEFAULT_CODEX_HOME);
+	const codexWatchIntervalMs = readNumberEnv(
+		"CODEX_WATCH_INTERVAL_MS",
+		DEFAULT_CODEX_WATCH_INTERVAL_MS,
+	);
 
 	return {
 		bridgeHost,
@@ -72,6 +84,9 @@ export function loadBridgeConfig(): BridgeConfig {
 		bridgeSecret,
 		bridgeBaseUrl: buildHttpUrl(bridgeHost, bridgePort),
 		botBaseUrl: buildHttpUrl(botHost, botPort),
+		codexHome,
+		codexSessionsDir: path.join(codexHome, "sessions"),
+		codexWatchIntervalMs,
 	};
 }
 
@@ -105,6 +120,7 @@ function printConfigSummary(): void {
 				bridge: {
 					bridgeBaseUrl: bridgeConfig.bridgeBaseUrl,
 					botBaseUrl: bridgeConfig.botBaseUrl,
+					codexSessionsDir: bridgeConfig.codexSessionsDir,
 				},
 				bot: {
 					botBaseUrl: botConfig.botBaseUrl,

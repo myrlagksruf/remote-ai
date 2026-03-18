@@ -74,6 +74,16 @@ export class ThreadManager {
 		if (existingThreadId) {
 			const existingThread = await this.fetchThread(existingThreadId);
 			if (existingThread) {
+				console.log(
+					JSON.stringify({
+						scope: "discord_thread",
+						stage: "reused",
+						sessionId,
+						threadId: existingThread.id,
+						sessionName,
+						tool,
+					}),
+				);
 				return existingThread;
 			}
 		}
@@ -89,6 +99,16 @@ export class ThreadManager {
 
 		this.sessionToThread.set(sessionId, thread.id);
 		this.threadToSession.set(thread.id, sessionId);
+		console.log(
+			JSON.stringify({
+				scope: "discord_thread",
+				stage: "created",
+				sessionId,
+				threadId: thread.id,
+				sessionName,
+				tool,
+			}),
+		);
 
 		return thread;
 	}
@@ -108,6 +128,14 @@ export class ThreadManager {
 		if (!thread.archived) {
 			await thread.setArchived(true, "Remote AI session ended");
 		}
+		console.log(
+			JSON.stringify({
+				scope: "discord_thread",
+				stage: "archived",
+				sessionId,
+				threadId,
+			}),
+		);
 
 		this.clearSession(sessionId);
 	}

@@ -2,6 +2,7 @@ import Fastify from "fastify";
 
 import { loadBridgeConfig } from "../shared/config.js";
 import type { BridgeInputResponse, UserInputPayload } from "../shared/types.js";
+import { CodexSessionWatcher } from "./codexSessionWatcher.js";
 import { startCodexResume } from "./codexRunner.js";
 import { buildBridgeEvent, parseHookEvent } from "./eventParser.js";
 import { notifyBot } from "./inputRouter.js";
@@ -10,6 +11,7 @@ import { SessionManager } from "./sessionManager.js";
 const config = loadBridgeConfig();
 const sessionManager = new SessionManager();
 const app = Fastify({ logger: true });
+const codexWatcher = new CodexSessionWatcher(config, sessionManager, app.log);
 
 function readExistingSessionId(body: unknown): string | undefined {
 	if (typeof body !== "object" || body === null) {
@@ -37,33 +39,6 @@ function readExistingSessionId(body: unknown): string | undefined {
 	return undefined;
 }
 
-function readCodexSessionCwd(body: unknown): string | undefined {
-	if (typeof body !== "object" || body === null) {
-		return undefined;
-	}
-
-	const topLevel = body as { data?: unknown };
-	if (typeof topLevel.data !== "object" || topLevel.data === null) {
-		return undefined;
-	}
-
-	const data = topLevel.data as Record<string, unknown>;
-	for (const key of [
-		"cwd",
-		"workdir",
-		"workspace_root",
-		"workspaceRoot",
-		"project_root",
-	]) {
-		const value = data[key];
-		if (typeof value === "string" && value.trim()) {
-			return value;
-		}
-	}
-
-	return undefined;
-}
-
 app.addHook("preHandler", async (request, reply) => {
 	if (request.method !== "POST") {
 		return;
@@ -84,20 +59,13 @@ async function processHookPayload(body: unknown) {
 	const parsed = parseHookEvent(body, existingSession);
 	const { session, isNew } = sessionManager.getOrCreateSession({
 		sessionId: parsed.sessionId,
-		tool: parsed.tool,
+		tool: "claude",
 		name: parsed.sessionName,
 	});
 
-	if (parsed.tool === "codex") {
-		const cwd = readCodexSessionCwd(body);
-		if (cwd) {
-			sessionManager.setCodexCwd(session.sessionId, cwd);
-		}
-	}
-
 	if (isNew && parsed.normalizedEvent !== "session_start") {
 		const sessionStartEvent = buildBridgeEvent({
-			tool: session.tool,
+			tool: "claude",
 			sessionId: session.sessionId,
 			sessionName: session.name,
 			event: "session_start",
@@ -114,17 +82,8 @@ async function processHookPayload(body: unknown) {
 		requestId = pendingRequest.requestId;
 	} else if (parsed.normalizedEvent === "session_end") {
 		sessionManager.endSession(session.sessionId);
-		if (parsed.tool === "codex") {
-			sessionManager.markCodexResumeFinished(session.sessionId);
-		}
 	} else {
 		sessionManager.setStatus(session.sessionId, "active");
-		if (
-			parsed.tool === "codex" &&
-			parsed.normalizedEvent === "response_complete"
-		) {
-			sessionManager.markCodexResumeFinished(session.sessionId);
-		}
 	}
 
 	if (parsed.normalizedEvent === "after_tool") {
@@ -136,7 +95,7 @@ async function processHookPayload(body: unknown) {
 	}
 
 	const bridgeEvent = buildBridgeEvent({
-		tool: session.tool,
+		tool: "claude",
 		sessionId: session.sessionId,
 		sessionName: session.name,
 		event: parsed.normalizedEvent,
@@ -147,6 +106,18 @@ async function processHookPayload(body: unknown) {
 	if (parsed.shouldNotifyBot) {
 		await notifyBot(config, bridgeEvent);
 	}
+	app.log.info(
+		{
+			scope: "bridge_hook",
+			tool: bridgeEvent.tool,
+			event: bridgeEvent.event,
+			sessionId: bridgeEvent.sessionId,
+			sessionName: bridgeEvent.sessionName,
+			requestId,
+			messagePreview: bridgeEvent.data.message?.slice(0, 160),
+		},
+		"Processed bridge hook payload.",
+	);
 
 	return {
 		ok: true,
@@ -156,9 +127,19 @@ async function processHookPayload(body: unknown) {
 }
 
 app.post("/hook/claude", async (request) => processHookPayload(request.body));
-app.post("/hook/codex", async (request) => processHookPayload(request.body));
 
 app.post<{ Body: UserInputPayload }>("/input", async (request, reply) => {
+	app.log.info(
+		{
+			scope: "bridge_input",
+			type: request.body.type,
+			sessionId: request.body.sessionId,
+			requestId: request.body.requestId,
+			messagePreview: request.body.content?.slice(0, 160),
+		},
+		"Received bridge input.",
+	);
+
 	if (request.body.type === "direct_prompt") {
 		const session = sessionManager.getSession(request.body.sessionId);
 		if (!session) {
@@ -202,6 +183,15 @@ app.post<{ Body: UserInputPayload }>("/input", async (request, reply) => {
 		}
 
 		reply.code(202);
+		app.log.info(
+			{
+				scope: "bridge_input",
+				type: request.body.type,
+				sessionId: request.body.sessionId,
+				started: true,
+			},
+			"Accepted Codex direct prompt.",
+		);
 		return {
 			ok: true,
 			accepted: true,
@@ -214,6 +204,16 @@ app.post<{ Body: UserInputPayload }>("/input", async (request, reply) => {
 		reply.code(404);
 		return result satisfies BridgeInputResponse;
 	}
+	app.log.info(
+		{
+			scope: "bridge_input",
+			type: request.body.type,
+			sessionId: request.body.sessionId,
+			requestId: request.body.requestId,
+			resolved: true,
+		},
+		"Resolved pending bridge input.",
+	);
 
 	return {
 		ok: true,
@@ -224,8 +224,10 @@ app.post<{ Body: UserInputPayload }>("/input", async (request, reply) => {
 
 app.get("/sessions", async () => ({
 	sessions: sessionManager.listSessions(),
+	codexWatcher: codexWatcher.getDiagnostics(),
 }));
 
+await codexWatcher.start();
 const address = await app.listen({
 	host: config.bridgeHost,
 	port: config.bridgePort,

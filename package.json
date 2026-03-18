@@ -6,6 +6,7 @@
 	"scripts": {
 		"build": "tsgo",
 		"check": "tsgo --noEmit",
+		"test": "tsx --test src/**/*.test.ts",
 		"lint": "biome check",
 		"format": "biome format",
 		"dev:bridge": "tsx watch src/bridge/index.ts",

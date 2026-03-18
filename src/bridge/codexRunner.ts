@@ -23,15 +23,51 @@ interface StartCodexResumeResult {
 function buildResumeArgs(
 	sessionId: string,
 	prompt: string,
-	cwd?: string,
 ): string[] {
-	const args = ["exec", "resume", "--enable", "codex_hooks"];
-	if (cwd) {
-		args.push("-C", cwd);
-	}
+	return [
+		"exec",
+		"resume",
+		"--dangerously-bypass-approvals-and-sandbox",
+		"--json",
+		sessionId,
+		prompt,
+	];
+}
 
-	args.push(sessionId, prompt);
-	return args;
+function logCodexResumeEvent(sessionId: string, line: string): void {
+	try {
+		const parsed = JSON.parse(line) as Record<string, unknown>;
+		const eventType =
+			typeof parsed.type === "string"
+				? parsed.type
+				: typeof parsed.event === "string"
+					? parsed.event
+					: "unknown";
+		const message =
+			typeof parsed.message === "string"
+				? parsed.message
+				: typeof parsed.text === "string"
+					? parsed.text
+					: undefined;
+
+		console.log(
+			JSON.stringify({
+				scope: "codex_resume",
+				sessionId,
+				event: eventType,
+				messagePreview: message?.slice(0, 160),
+			}),
+		);
+	} catch {
+		console.log(
+			JSON.stringify({
+				scope: "codex_resume",
+				sessionId,
+				event: "stdout",
+				messagePreview: line.slice(0, 160),
+			}),
+		);
+	}
 }
 
 async function notifyCodexSystemMessage(params: {
@@ -71,14 +107,37 @@ export async function startCodexResume({
 	}
 
 	const { session } = startResult;
-	const resumeArgs = buildResumeArgs(sessionId, prompt, session.codex?.cwd);
+	const resumeArgs = buildResumeArgs(sessionId, prompt);
 	let stderr = "";
+	let stdoutRemainder = "";
 
 	try {
 		const child = spawn("codex", resumeArgs, {
 			cwd: session.codex?.cwd,
 			env: process.env,
-			stdio: ["ignore", "ignore", "pipe"],
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+
+		console.log(
+			JSON.stringify({
+				scope: "codex_resume",
+				sessionId,
+				cwd: session.codex?.cwd,
+				args: resumeArgs,
+				message: "Starting Codex resume.",
+			}),
+		);
+
+		child.stdout.on("data", (chunk: Buffer | string) => {
+			stdoutRemainder += chunk.toString();
+			const lines = stdoutRemainder.split(/\r?\n/);
+			stdoutRemainder = lines.pop() ?? "";
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (trimmed) {
+					logCodexResumeEvent(sessionId, trimmed);
+				}
+			}
 		});
 
 		child.stderr.on("data", (chunk: Buffer | string) => {
@@ -99,7 +158,20 @@ export async function startCodexResume({
 		});
 
 		child.on("close", (code, signal) => {
+			if (stdoutRemainder.trim()) {
+				logCodexResumeEvent(sessionId, stdoutRemainder.trim());
+			}
+
 			if (code === 0) {
+				console.log(
+					JSON.stringify({
+						scope: "codex_resume",
+						sessionId,
+						exitCode: code,
+						signal,
+						message: "Codex resume completed.",
+					}),
+				);
 				return;
 			}
 

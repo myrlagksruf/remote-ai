@@ -8,7 +8,6 @@ import type {
 } from "../shared/types.js";
 
 interface HookEnvelope {
-	tool: ToolName;
 	event: string;
 	sessionId: string;
 	sessionName: string;
@@ -30,8 +29,8 @@ function normalizeEventName(value: string): string {
 	return value.replace(/[_\s-]/g, "").toLowerCase();
 }
 
-function fallbackSessionName(tool: ToolName, sessionId: string): string {
-	return `${tool}-${sessionId.slice(0, 8)}`;
+function fallbackSessionName(sessionId: string): string {
+	return `claude-${sessionId.slice(0, 8)}`;
 }
 
 function toBridgeEventData(data: Record<string, unknown>): BridgeEventData {
@@ -74,7 +73,7 @@ function readSessionName(
 		readString(data.session_name) ??
 		readString(data.context) ??
 		existingSession?.name ??
-		fallbackSessionName(tool, sessionId)
+		fallbackSessionName(sessionId)
 	);
 }
 
@@ -88,7 +87,6 @@ function normalizeClaudeEvent(
 	switch (normalizeEventName(rawEvent)) {
 		case "notification":
 			return {
-				tool: "claude",
 				event: rawEvent,
 				sessionId,
 				sessionName,
@@ -103,7 +101,6 @@ function normalizeClaudeEvent(
 		case "pretool":
 		case "pretooluse":
 			return {
-				tool: "claude",
 				event: rawEvent,
 				sessionId,
 				sessionName,
@@ -115,7 +112,6 @@ function normalizeClaudeEvent(
 		case "posttool":
 		case "posttooluse":
 			return {
-				tool: "claude",
 				event: rawEvent,
 				sessionId,
 				sessionName,
@@ -125,7 +121,6 @@ function normalizeClaudeEvent(
 			};
 		case "sessionend":
 			return {
-				tool: "claude",
 				event: rawEvent,
 				sessionId,
 				sessionName,
@@ -135,7 +130,6 @@ function normalizeClaudeEvent(
 			};
 		default:
 			return {
-				tool: "claude",
 				event: rawEvent,
 				sessionId,
 				sessionName,
@@ -143,61 +137,6 @@ function normalizeClaudeEvent(
 				data: {
 					...bridgeData,
 					message: bridgeData.message ?? "Claude turn completed.",
-				},
-				shouldNotifyBot: true,
-			};
-	}
-}
-
-function normalizeCodexEvent(
-	rawEvent: string,
-	sessionId: string,
-	sessionName: string,
-	data: Record<string, unknown>,
-): HookEnvelope {
-	const bridgeData = toBridgeEventData(data);
-	switch (normalizeEventName(rawEvent)) {
-		case "sessionstart":
-			return {
-				tool: "codex",
-				event: rawEvent,
-				sessionId,
-				sessionName,
-				normalizedEvent: "session_start",
-				data: bridgeData,
-				shouldNotifyBot: true,
-			};
-		case "aftertool":
-		case "aftertooluse":
-			return {
-				tool: "codex",
-				event: rawEvent,
-				sessionId,
-				sessionName,
-				normalizedEvent: "after_tool",
-				data: bridgeData,
-				shouldNotifyBot: false,
-			};
-		case "sessionend":
-			return {
-				tool: "codex",
-				event: rawEvent,
-				sessionId,
-				sessionName,
-				normalizedEvent: "session_end",
-				data: bridgeData,
-				shouldNotifyBot: true,
-			};
-		default:
-			return {
-				tool: "codex",
-				event: rawEvent,
-				sessionId,
-				sessionName,
-				normalizedEvent: "response_complete",
-				data: {
-					...bridgeData,
-					message: bridgeData.message ?? "Codex turn completed.",
 				},
 				shouldNotifyBot: true,
 			};
@@ -213,8 +152,8 @@ export function parseHookEvent(
 	}
 
 	const tool = readString(body.tool);
-	if (tool !== "claude" && tool !== "codex") {
-		throw new Error("Hook payload must include tool: 'claude' | 'codex'.");
+	if (tool !== "claude") {
+		throw new Error("Hook payload must include tool: 'claude'.");
 	}
 
 	const event = readString(body.event);
@@ -232,9 +171,7 @@ export function parseHookEvent(
 		existingSession,
 	);
 
-	return tool === "claude"
-		? normalizeClaudeEvent(event, sessionId, sessionName, data)
-		: normalizeCodexEvent(event, sessionId, sessionName, data);
+	return normalizeClaudeEvent(event, sessionId, sessionName, data);
 }
 
 export function buildBridgeEvent(params: {

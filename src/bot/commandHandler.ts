@@ -68,12 +68,36 @@ async function handleThreadMessage(
 	}
 
 	const requestId = pendingRequests.consumeAwaitingText(message.channelId);
+	console.log(
+		JSON.stringify({
+			scope: "discord_input",
+			stage: "received",
+			sessionId,
+			threadId: message.channelId,
+			inputType: requestId ? "text_response" : "direct_prompt",
+			messagePreview: message.content.slice(0, 160),
+		}),
+	);
+
 	const inputResult = await postUserInput(config, {
 		sessionId,
 		requestId,
 		type: requestId ? "text_response" : "direct_prompt",
 		content: message.content,
 	});
+	console.log(
+		JSON.stringify({
+			scope: "discord_input",
+			stage: "forwarded",
+			sessionId,
+			threadId: message.channelId,
+			inputType: requestId ? "text_response" : "direct_prompt",
+			ok: inputResult.ok,
+			status: inputResult.status,
+			busy: inputResult.body.busy ?? false,
+			reason: inputResult.body.reason,
+		}),
+	);
 
 	if (requestId || inputResult.ok) {
 		return;
@@ -125,6 +149,16 @@ async function handleButtonInteraction(
 	const action = parts[1];
 	const requestId = parts[2];
 	const allowed = action === "allow";
+	console.log(
+		JSON.stringify({
+			scope: "discord_input",
+			stage: "permission_response",
+			sessionId,
+			threadId: interaction.channelId,
+			requestId,
+			allowed,
+		}),
+	);
 
 	await postUserInput(config, {
 		sessionId,
