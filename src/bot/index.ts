@@ -6,7 +6,9 @@ import { registerCommandHandlers } from "./commandHandler.js";
 import { formatEventMessage } from "./messageFormatter.js";
 import { PendingRequestStore } from "./pendingRequests.js";
 import { createBotServer } from "./server.js";
+import { registerSlashCommands } from "./slashCommands.js";
 import { ThreadManager } from "./threadManager.js";
+import { PersistentSessionStore } from "../shared/persistentSessionStore.js";
 
 const config = loadBotConfig();
 
@@ -19,7 +21,12 @@ const client = new Client({
 	partials: [Partials.Channel],
 });
 
-const threadManager = new ThreadManager(client, config.discordChannelId);
+const persistentStore = new PersistentSessionStore(config.threadBindingsFile);
+const threadManager = new ThreadManager(
+	client,
+	config.discordChannelId,
+	persistentStore,
+);
 const pendingRequests = new PendingRequestStore();
 
 registerCommandHandlers({
@@ -81,6 +88,8 @@ const server = createBotServer({
 
 await client.login(config.discordToken);
 await threadManager.validateParentChannelAccess();
+await threadManager.hydratePersistedBindings();
+await registerSlashCommands(client, config);
 const address = await server.listen({
 	host: config.botHost,
 	port: config.botPort,

@@ -7,19 +7,71 @@ import {
 	type ThreadChannel,
 } from "discord.js";
 
-import type { ToolName } from "../shared/types.js";
+import type { PersistentStorePayload, PersistedThreadBinding, ToolName } from "../shared/types.js";
+import { PersistentSessionStore } from "../shared/persistentSessionStore.js";
 
 export class ThreadManager {
 	private readonly sessionToThread = new Map<string, string>();
 	private readonly threadToSession = new Map<string, string>();
+	private readonly bindings = new Map<string, PersistedThreadBinding>();
 
 	constructor(
 		private readonly client: Client,
 		private readonly parentChannelId: string,
+		private readonly store: PersistentSessionStore,
 	) {}
 
 	getSessionIdForThread(threadId: string): string | undefined {
 		return this.threadToSession.get(threadId);
+	}
+
+	async hydratePersistedBindings(): Promise<void> {
+		const payload = await this.store.load();
+		let changed = false;
+
+		for (const binding of payload.bindings) {
+			this.bindings.set(binding.sessionId, binding);
+			if (binding.archived) {
+				continue;
+			}
+
+			const thread = await this.fetchThread(binding.threadId);
+			if (!thread) {
+				console.warn(
+					JSON.stringify({
+						scope: "discord_thread",
+						stage: "hydrate_missing",
+						sessionId: binding.sessionId,
+						threadId: binding.threadId,
+					}),
+				);
+				this.bindings.set(binding.sessionId, {
+					...binding,
+					status: "inactive",
+					archived: true,
+					updatedAt: new Date().toISOString(),
+				});
+				changed = true;
+				continue;
+			}
+
+			this.sessionToThread.set(binding.sessionId, binding.threadId);
+			this.threadToSession.set(binding.threadId, binding.sessionId);
+			console.log(
+				JSON.stringify({
+					scope: "discord_thread",
+					stage: "hydrated",
+					sessionId: binding.sessionId,
+					threadId: binding.threadId,
+					sessionName: binding.sessionName,
+					tool: binding.tool,
+				}),
+			);
+		}
+
+		if (changed) {
+			await this.flushBindings();
+		}
 	}
 
 	async validateParentChannelAccess(): Promise<TextChannel> {
@@ -84,6 +136,14 @@ export class ThreadManager {
 						tool,
 					}),
 				);
+				await this.upsertBinding({
+					sessionId,
+					threadId: existingThread.id,
+					sessionName,
+					tool,
+					status: "active",
+					archived: Boolean(existingThread.archived),
+				});
 				return existingThread;
 			}
 		}
@@ -99,6 +159,14 @@ export class ThreadManager {
 
 		this.sessionToThread.set(sessionId, thread.id);
 		this.threadToSession.set(thread.id, sessionId);
+		await this.upsertBinding({
+			sessionId,
+			threadId: thread.id,
+			sessionName,
+			tool,
+			status: "active",
+			archived: Boolean(thread.archived),
+		});
 		console.log(
 			JSON.stringify({
 				scope: "discord_thread",
@@ -121,6 +189,7 @@ export class ThreadManager {
 
 		const thread = await this.fetchThread(threadId);
 		if (!thread) {
+			await this.markBindingInactive(sessionId);
 			this.clearSession(sessionId);
 			return;
 		}
@@ -128,6 +197,14 @@ export class ThreadManager {
 		if (!thread.archived) {
 			await thread.setArchived(true, "Remote AI session ended");
 		}
+		await this.upsertBinding({
+			sessionId,
+			threadId,
+			sessionName: thread.name,
+			tool: this.bindings.get(sessionId)?.tool ?? "codex",
+			status: "completed",
+			archived: true,
+		});
 		console.log(
 			JSON.stringify({
 				scope: "discord_thread",
@@ -141,12 +218,65 @@ export class ThreadManager {
 	}
 
 	private async fetchThread(threadId: string): Promise<ThreadChannel | null> {
-		const channel = await this.client.channels.fetch(threadId);
-		if (channel?.isThread()) {
-			return channel;
+		try {
+			const channel = await this.client.channels.fetch(threadId);
+			if (channel?.isThread()) {
+				return channel;
+			}
+		} catch {
+			return null;
 		}
 
 		return null;
+	}
+
+	private async upsertBinding(params: {
+		sessionId: string;
+		threadId: string;
+		sessionName: string;
+		tool: ToolName;
+		status: PersistedThreadBinding["status"];
+		archived: boolean;
+	}): Promise<void> {
+		const now = new Date().toISOString();
+		const existing = this.bindings.get(params.sessionId);
+		this.bindings.set(params.sessionId, {
+			...existing,
+			sessionId: params.sessionId,
+			threadId: params.threadId,
+			tool: params.tool,
+			sessionName: params.sessionName,
+			status: params.status,
+			lastActivity: now,
+			archived: params.archived,
+			updatedAt: now,
+		});
+		await this.flushBindings();
+	}
+
+	private async markBindingInactive(sessionId: string): Promise<void> {
+		const existing = this.bindings.get(sessionId);
+		if (!existing) {
+			return;
+		}
+
+		this.bindings.set(sessionId, {
+			...existing,
+			status: "inactive",
+			archived: true,
+			updatedAt: new Date().toISOString(),
+		});
+		await this.flushBindings();
+	}
+
+	private async flushBindings(): Promise<void> {
+		const payload: PersistentStorePayload = {
+			version: 1,
+			bindings: Array.from(this.bindings.values()).sort((left, right) =>
+				left.updatedAt.localeCompare(right.updatedAt),
+			),
+		};
+		await this.store.save(payload);
 	}
 
 	private clearSession(sessionId: string): void {

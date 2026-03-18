@@ -1,5 +1,6 @@
 import {
 	type ButtonInteraction,
+	type ChatInputCommandInteraction,
 	type Client,
 	Events,
 	type Message,
@@ -15,6 +16,17 @@ interface CommandHandlerDeps {
 	config: BotConfig;
 	threadManager: ThreadManager;
 	pendingRequests: PendingRequestStore;
+}
+
+export function buildPlanPrompt(prompt: string): string {
+	return [
+		"Treat the following user request as a planning task for the current session.",
+		"Do not implement changes yet.",
+		"If any high-impact ambiguity remains, ask focused follow-up questions first.",
+		"When the spec is decision-complete, finish with a concise structured implementation plan.",
+		"",
+		prompt.trim(),
+	].join("\n");
 }
 
 async function postUserInput(
@@ -172,6 +184,77 @@ async function handleButtonInteraction(
 	});
 }
 
+async function handlePlanInteraction(
+	config: BotConfig,
+	threadManager: ThreadManager,
+	interaction: ChatInputCommandInteraction,
+): Promise<void> {
+	if (interaction.commandName !== "plan") {
+		return;
+	}
+
+	if (!interaction.inGuild() || !interaction.channel?.isThread()) {
+		await interaction.reply({
+			content: "기존 session thread 안에서만 `/plan` 을 사용할 수 있습니다.",
+			ephemeral: true,
+		});
+		return;
+	}
+
+	if (interaction.user.id !== config.discordUserId) {
+		await interaction.reply({
+			content: "이 명령은 지정된 사용자만 사용할 수 있습니다.",
+			ephemeral: true,
+		});
+		return;
+	}
+
+	const sessionId = threadManager.getSessionIdForThread(interaction.channelId);
+	if (!sessionId) {
+		await interaction.reply({
+			content: "이 thread에 연결된 Codex 세션을 찾지 못했습니다.",
+			ephemeral: true,
+		});
+		return;
+	}
+
+	const prompt = interaction.options.getString("prompt", true).trim();
+	const inputResult = await postUserInput(config, {
+		sessionId,
+		type: "direct_prompt",
+		content: buildPlanPrompt(prompt),
+	});
+	console.log(
+		JSON.stringify({
+			scope: "discord_input",
+			stage: "plan_forwarded",
+			sessionId,
+			threadId: interaction.channelId,
+			ok: inputResult.ok,
+			status: inputResult.status,
+			busy: inputResult.body.busy ?? false,
+			reason: inputResult.body.reason,
+		}),
+	);
+
+	if (inputResult.ok) {
+		await interaction.reply({
+			content: "계획 요청을 현재 Codex 세션으로 전달했습니다. 응답은 이 thread에 이어집니다.",
+			ephemeral: true,
+		});
+		return;
+	}
+
+	const reason =
+		inputResult.body.reason ?? "Bridge가 요청을 처리하지 못했습니다.";
+	await interaction.reply({
+		content: inputResult.body.busy
+			? "Codex 세션이 이미 다른 후속 요청을 처리 중입니다. 현재 turn이 끝난 뒤 다시 시도해주세요."
+			: `계획 요청을 전달하지 못했습니다.\n${reason}`,
+		ephemeral: true,
+	});
+}
+
 export function registerCommandHandlers({
 	client,
 	config,
@@ -192,15 +275,18 @@ export function registerCommandHandlers({
 	});
 
 	client.on(Events.InteractionCreate, async (interaction) => {
-		if (!interaction.isButton()) {
-			return;
-		}
-
 		try {
-			await handleButtonInteraction(config, threadManager, interaction);
+			if (interaction.isButton()) {
+				await handleButtonInteraction(config, threadManager, interaction);
+				return;
+			}
+
+			if (interaction.isChatInputCommand()) {
+				await handlePlanInteraction(config, threadManager, interaction);
+			}
 		} catch (error) {
-			console.error("Failed to handle button interaction:", error);
-			if (!interaction.replied && !interaction.deferred) {
+			console.error("Failed to handle interaction:", error);
+			if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
 				await interaction.reply({
 					content: "Bridge에 응답을 전달하지 못했습니다.",
 					ephemeral: true,

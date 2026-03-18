@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 
 import { loadBridgeConfig } from "../shared/config.js";
+import { PersistentSessionStore } from "../shared/persistentSessionStore.js";
 import type { BridgeInputResponse, UserInputPayload } from "../shared/types.js";
 import { CodexSessionWatcher } from "./codexSessionWatcher.js";
 import { startCodexResume } from "./codexRunner.js";
@@ -12,6 +13,7 @@ const config = loadBridgeConfig();
 const sessionManager = new SessionManager();
 const app = Fastify({ logger: true });
 const codexWatcher = new CodexSessionWatcher(config, sessionManager, app.log);
+const persistentStore = new PersistentSessionStore(config.threadBindingsFile);
 
 function readExistingSessionId(body: unknown): string | undefined {
 	if (typeof body !== "object" || body === null) {
@@ -125,6 +127,9 @@ async function processHookPayload(body: unknown) {
 		requestId,
 	};
 }
+
+const persistedBindings = await persistentStore.load();
+sessionManager.hydratePersistedCodexBindings(persistedBindings.bindings);
 
 app.post("/hook/claude", async (request) => processHookPayload(request.body));
 

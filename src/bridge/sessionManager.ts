@@ -4,6 +4,7 @@ import type {
 	PendingRequest,
 	PendingRequestType,
 	PermissionMode,
+	PersistedThreadBinding,
 	SerializableSession,
 	Session,
 	SessionStatus,
@@ -217,5 +218,32 @@ export class SessionManager {
 			...session,
 			pendingRequests: Array.from(session.pendingRequests.values()),
 		}));
+	}
+
+	hydratePersistedCodexBindings(bindings: PersistedThreadBinding[]): void {
+		for (const binding of bindings) {
+			if (binding.tool !== "codex" || binding.archived) {
+				continue;
+			}
+
+			const createdAt = binding.updatedAt || binding.lastActivity;
+			const session: Session = {
+				sessionId: binding.sessionId,
+				tool: binding.tool,
+				name: binding.sessionName,
+				discordThreadId: binding.threadId,
+				status:
+					binding.status === "inactive" ? "completed" : binding.status,
+				permissionMode: "default",
+				pendingRequests: new Map<string, PendingRequest>(),
+				createdAt,
+				lastActivity: binding.lastActivity,
+				codex: {
+					hasInFlightResume: false,
+				},
+			};
+
+			this.sessions.set(binding.sessionId, session);
+		}
 	}
 }

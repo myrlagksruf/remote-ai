@@ -29,11 +29,14 @@ codex --dangerously-bypass-approvals-and-sandbox
 
 The bridge also resumes Codex with `codex exec resume --dangerously-bypass-approvals-and-sandbox --json`, so resumed turns stay in the same mode.
 
+Persistent Discord thread mappings are stored in [data/thread-bindings.json](C:\Users\myrla\remote-ai\data\thread-bindings.json). The file is intentionally human-editable and is used for restart recovery. Invalid entries are skipped on boot.
+
 ## What Gets Sent To Discord
 
 - Normal Codex final answers are sent as `response_complete`
 - Plan-mode questions are sent as `ai_question`
 - After you reply in the Discord thread, the bridge resumes the Codex session and the next final answer is sent again
+- `/plan` can be used inside an existing mapped Discord thread to send a planning-only prompt to the current Codex session
 - Commentary updates are not forwarded to Discord
 
 ## Log-Based Verification

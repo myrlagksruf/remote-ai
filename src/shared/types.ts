@@ -24,6 +24,8 @@ export type SessionStatus =
 	| "waiting_permission"
 	| "completed";
 
+export type PersistedThreadBindingStatus = SessionStatus | "inactive";
+
 export interface BridgeEventData {
 	message?: string;
 	toolName?: string;
@@ -98,4 +100,20 @@ export interface BridgeInputResponse {
 	reason?: string;
 	pendingRequest?: PendingRequest;
 	note?: string;
+}
+
+export interface PersistedThreadBinding {
+	sessionId: string;
+	threadId: string;
+	tool: ToolName;
+	sessionName: string;
+	status: PersistedThreadBindingStatus;
+	lastActivity: string;
+	archived: boolean;
+	updatedAt: string;
+}
+
+export interface PersistentStorePayload {
+	version: 1;
+	bindings: PersistedThreadBinding[];
 }

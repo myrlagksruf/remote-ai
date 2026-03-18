@@ -28,6 +28,8 @@ function createWatcherHarness() {
 		codexHome: "C:\\Users\\myrla\\.codex",
 		codexSessionsDir: "C:\\Users\\myrla\\.codex\\sessions",
 		codexWatchIntervalMs: 1000,
+		projectDataDir: "C:\\Users\\myrla\\remote-ai\\data",
+		threadBindingsFile: "C:\\Users\\myrla\\remote-ai\\data\\thread-bindings.json",
 	};
 
 	const watcher = new CodexSessionWatcher(

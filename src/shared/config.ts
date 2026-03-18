@@ -11,6 +11,7 @@ const DEFAULT_BOT_HOST = "127.0.0.1";
 const DEFAULT_BOT_PORT = 3001;
 const DEFAULT_CODEX_HOME = path.join(homedir(), ".codex");
 const DEFAULT_CODEX_WATCH_INTERVAL_MS = 1000;
+const DEFAULT_PROJECT_DATA_DIR = path.resolve(process.cwd(), "data");
 
 export interface BridgeConfig {
 	bridgeHost: string;
@@ -21,6 +22,8 @@ export interface BridgeConfig {
 	codexHome: string;
 	codexSessionsDir: string;
 	codexWatchIntervalMs: number;
+	projectDataDir: string;
+	threadBindingsFile: string;
 }
 
 export interface BotConfig {
@@ -33,6 +36,8 @@ export interface BotConfig {
 	discordGuildId: string;
 	discordChannelId: string;
 	discordUserId: string;
+	projectDataDir: string;
+	threadBindingsFile: string;
 }
 
 function readRequiredEnv(name: string): string {
@@ -73,6 +78,7 @@ export function loadBridgeConfig(): BridgeConfig {
 	const botPort = readNumberEnv("BOT_PORT", DEFAULT_BOT_PORT);
 	const bridgeSecret = readRequiredEnv("BRIDGE_SECRET");
 	const codexHome = readStringEnv("CODEX_HOME", DEFAULT_CODEX_HOME);
+	const projectDataDir = DEFAULT_PROJECT_DATA_DIR;
 	const codexWatchIntervalMs = readNumberEnv(
 		"CODEX_WATCH_INTERVAL_MS",
 		DEFAULT_CODEX_WATCH_INTERVAL_MS,
@@ -87,6 +93,8 @@ export function loadBridgeConfig(): BridgeConfig {
 		codexHome,
 		codexSessionsDir: path.join(codexHome, "sessions"),
 		codexWatchIntervalMs,
+		projectDataDir,
+		threadBindingsFile: path.join(projectDataDir, "thread-bindings.json"),
 	};
 }
 
@@ -96,6 +104,7 @@ export function loadBotConfig(): BotConfig {
 	const bridgeHost = readStringEnv("BRIDGE_HOST", DEFAULT_BRIDGE_HOST);
 	const bridgePort = readNumberEnv("BRIDGE_PORT", DEFAULT_BRIDGE_PORT);
 	const bridgeSecret = readRequiredEnv("BRIDGE_SECRET");
+	const projectDataDir = DEFAULT_PROJECT_DATA_DIR;
 
 	return {
 		botHost,
@@ -107,6 +116,8 @@ export function loadBotConfig(): BotConfig {
 		discordGuildId: readRequiredEnv("DISCORD_GUILD_ID"),
 		discordChannelId: readRequiredEnv("DISCORD_CHANNEL_ID"),
 		discordUserId: readRequiredEnv("DISCORD_USER_ID"),
+		projectDataDir,
+		threadBindingsFile: path.join(projectDataDir, "thread-bindings.json"),
 	};
 }
 
@@ -121,6 +132,7 @@ function printConfigSummary(): void {
 					bridgeBaseUrl: bridgeConfig.bridgeBaseUrl,
 					botBaseUrl: bridgeConfig.botBaseUrl,
 					codexSessionsDir: bridgeConfig.codexSessionsDir,
+					threadBindingsFile: bridgeConfig.threadBindingsFile,
 				},
 				bot: {
 					botBaseUrl: botConfig.botBaseUrl,
@@ -128,6 +140,7 @@ function printConfigSummary(): void {
 					discordGuildId: botConfig.discordGuildId,
 					discordChannelId: botConfig.discordChannelId,
 					discordUserId: botConfig.discordUserId,
+					threadBindingsFile: botConfig.threadBindingsFile,
 				},
 			},
 			null,
