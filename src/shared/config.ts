@@ -78,7 +78,10 @@ export function loadBridgeConfig(): BridgeConfig {
 	const botPort = readNumberEnv("BOT_PORT", DEFAULT_BOT_PORT);
 	const bridgeSecret = readRequiredEnv("BRIDGE_SECRET");
 	const codexHome = readStringEnv("CODEX_HOME", DEFAULT_CODEX_HOME);
-	const projectDataDir = DEFAULT_PROJECT_DATA_DIR;
+	const projectDataDir = readStringEnv(
+		"PROJECT_DATA_DIR",
+		DEFAULT_PROJECT_DATA_DIR,
+	);
 	const codexWatchIntervalMs = readNumberEnv(
 		"CODEX_WATCH_INTERVAL_MS",
 		DEFAULT_CODEX_WATCH_INTERVAL_MS,
@@ -104,7 +107,10 @@ export function loadBotConfig(): BotConfig {
 	const bridgeHost = readStringEnv("BRIDGE_HOST", DEFAULT_BRIDGE_HOST);
 	const bridgePort = readNumberEnv("BRIDGE_PORT", DEFAULT_BRIDGE_PORT);
 	const bridgeSecret = readRequiredEnv("BRIDGE_SECRET");
-	const projectDataDir = DEFAULT_PROJECT_DATA_DIR;
+	const projectDataDir = readStringEnv(
+		"PROJECT_DATA_DIR",
+		DEFAULT_PROJECT_DATA_DIR,
+	);
 
 	return {
 		botHost,

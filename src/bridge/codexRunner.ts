@@ -30,10 +30,7 @@ interface SpawnCommand {
 	windowsVerbatimArguments?: boolean;
 }
 
-function buildResumeArgs(
-	sessionId: string,
-	prompt: string,
-): string[] {
+function buildResumeArgs(sessionId: string, prompt: string): string[] {
 	return [
 		"exec",
 		"resume",
@@ -56,7 +53,9 @@ function quoteWindowsArgument(argument: string): string {
 	return `"${argument.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1")}"`;
 }
 
-function findFirstExistingPath(candidates: Array<string | undefined>): string | null {
+function findFirstExistingPath(
+	candidates: Array<string | undefined>,
+): string | null {
 	for (const candidate of candidates) {
 		if (candidate && existsSync(candidate)) {
 			return candidate;
@@ -86,13 +85,7 @@ function resolveCodexExecutable(): string {
 				: undefined,
 			appData ? path.join(appData, "npm", "codex.cmd") : undefined,
 			appData ? path.join(appData, "npm", "codex") : undefined,
-			path.join(
-				homedir(),
-				"AppData",
-				"Roaming",
-				"npm",
-				"codex.cmd",
-			),
+			path.join(homedir(), "AppData", "Roaming", "npm", "codex.cmd"),
 		]) ?? "codex"
 	);
 }

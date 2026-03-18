@@ -62,7 +62,7 @@ function readSessionId(
 }
 
 function readSessionName(
-	tool: ToolName,
+	_tool: ToolName,
 	sessionId: string,
 	body: Record<string, unknown>,
 	data: Record<string, unknown>,

@@ -232,8 +232,7 @@ export class SessionManager {
 				tool: binding.tool,
 				name: binding.sessionName,
 				discordThreadId: binding.threadId,
-				status:
-					binding.status === "inactive" ? "completed" : binding.status,
+				status: binding.status === "inactive" ? "completed" : binding.status,
 				permissionMode: "default",
 				pendingRequests: new Map<string, PendingRequest>(),
 				createdAt,

@@ -239,7 +239,8 @@ async function handlePlanInteraction(
 
 	if (inputResult.ok) {
 		await interaction.reply({
-			content: "계획 요청을 현재 Codex 세션으로 전달했습니다. 응답은 이 thread에 이어집니다.",
+			content:
+				"계획 요청을 현재 Codex 세션으로 전달했습니다. 응답은 이 thread에 이어집니다.",
 			ephemeral: true,
 		});
 		return;
@@ -286,7 +287,11 @@ export function registerCommandHandlers({
 			}
 		} catch (error) {
 			console.error("Failed to handle interaction:", error);
-			if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+			if (
+				interaction.isRepliable() &&
+				!interaction.replied &&
+				!interaction.deferred
+			) {
 				await interaction.reply({
 					content: "Bridge에 응답을 전달하지 못했습니다.",
 					ephemeral: true,

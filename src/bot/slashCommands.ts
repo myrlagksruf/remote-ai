@@ -1,7 +1,4 @@
-import {
-	SlashCommandBuilder,
-	type Client,
-} from "discord.js";
+import { type Client, SlashCommandBuilder } from "discord.js";
 
 import type { BotConfig } from "../shared/config.js";
 

@@ -31,6 +31,14 @@ The bridge also resumes Codex with `codex exec resume --dangerously-bypass-appro
 
 Persistent Discord thread mappings are stored in [data/thread-bindings.json](C:\Users\myrla\remote-ai\data\thread-bindings.json). The file is intentionally human-editable and is used for restart recovery. Invalid entries are skipped on boot.
 
+Cross-platform notes:
+
+- The project is intended to run on Windows, Linux, and macOS.
+- `CODEX_HOME` defaults to the current user's `~/.codex`.
+- `PROJECT_DATA_DIR` can be set to move persisted mapping files outside the repo default `./data`.
+- `CODEX_BIN` can be set to the exact Codex executable path if `codex` is not discoverable in `PATH`.
+- Windows uses extra `.cmd` handling in the bridge; Linux and macOS use normal `spawn("codex", ...)` behavior unless `CODEX_BIN` is set.
+
 ## What Gets Sent To Discord
 
 - Normal Codex final answers are sent as `response_complete`

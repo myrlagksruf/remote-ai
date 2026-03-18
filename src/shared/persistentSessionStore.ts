@@ -23,9 +23,7 @@ function readBoolean(value: unknown): boolean | null {
 	return typeof value === "boolean" ? value : null;
 }
 
-function normalizeBinding(
-	input: unknown,
-): PersistedThreadBinding | null {
+function normalizeBinding(input: unknown): PersistedThreadBinding | null {
 	if (!isRecord(input)) {
 		return null;
 	}
@@ -92,7 +90,9 @@ export class PersistentSessionStore {
 			const bindings = Array.isArray(parsed.bindings)
 				? parsed.bindings
 						.map((binding) => normalizeBinding(binding))
-						.filter((binding): binding is PersistedThreadBinding => binding !== null)
+						.filter(
+							(binding): binding is PersistedThreadBinding => binding !== null,
+						)
 				: [];
 
 			return {

@@ -1,6 +1,7 @@
 import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
 
 import { loadBotConfig } from "../shared/config.js";
+import { PersistentSessionStore } from "../shared/persistentSessionStore.js";
 import type { BridgeEvent } from "../shared/types.js";
 import { registerCommandHandlers } from "./commandHandler.js";
 import { formatEventMessage } from "./messageFormatter.js";
@@ -8,7 +9,6 @@ import { PendingRequestStore } from "./pendingRequests.js";
 import { createBotServer } from "./server.js";
 import { registerSlashCommands } from "./slashCommands.js";
 import { ThreadManager } from "./threadManager.js";
-import { PersistentSessionStore } from "../shared/persistentSessionStore.js";
 
 const config = loadBotConfig();
 

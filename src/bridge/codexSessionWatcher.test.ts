@@ -1,9 +1,25 @@
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import type { BridgeConfig } from "../shared/config.js";
-import { SessionManager } from "./sessionManager.js";
 import { CodexSessionWatcher } from "./codexSessionWatcher.js";
+import { SessionManager } from "./sessionManager.js";
+
+type TestFileState = {
+	offset: number;
+	remainder: string;
+	sessionId?: string;
+};
+
+type WatcherTestApi = {
+	processLine(
+		line: string,
+		fileState: TestFileState,
+		notify: boolean,
+	): Promise<void>;
+};
 
 function createWatcherHarness() {
 	const events: unknown[] = [];
@@ -19,41 +35,41 @@ function createWatcherHarness() {
 		});
 	}) as typeof fetch;
 
+	const projectRoot = path.resolve(process.cwd());
+	const codexHome = path.join(homedir(), ".codex");
+	const cwd = projectRoot;
 	const config: BridgeConfig = {
 		bridgeHost: "127.0.0.1",
 		bridgePort: 3000,
 		bridgeSecret: "secret",
 		bridgeBaseUrl: "http://127.0.0.1:3000",
 		botBaseUrl: "http://127.0.0.1:3001",
-		codexHome: "C:\\Users\\myrla\\.codex",
-		codexSessionsDir: "C:\\Users\\myrla\\.codex\\sessions",
+		codexHome,
+		codexSessionsDir: path.join(codexHome, "sessions"),
 		codexWatchIntervalMs: 1000,
-		projectDataDir: "C:\\Users\\myrla\\remote-ai\\data",
-		threadBindingsFile: "C:\\Users\\myrla\\remote-ai\\data\\thread-bindings.json",
+		projectDataDir: path.join(projectRoot, "data"),
+		threadBindingsFile: path.join(projectRoot, "data", "thread-bindings.json"),
 	};
 
-	const watcher = new CodexSessionWatcher(
-		config,
-		new SessionManager(),
-		{
-			info() {},
-			warn() {},
-			error() {},
-			debug() {},
-			fatal() {},
-			trace() {},
-			child() {
-				return this;
-			},
-		} as never,
-	);
+	const watcher = new CodexSessionWatcher(config, new SessionManager(), {
+		info() {},
+		warn() {},
+		error() {},
+		debug() {},
+		fatal() {},
+		trace() {},
+		child() {
+			return this;
+		},
+	} as never);
 
 	return {
+		cwd,
 		events,
 		fileState: {
 			offset: 0,
 			remainder: "",
-		},
+		} satisfies TestFileState,
 		snapshotCleanup() {
 			globalThis.fetch = originalFetch;
 		},
@@ -61,16 +77,30 @@ function createWatcherHarness() {
 	};
 }
 
+async function processLine(
+	watcher: CodexSessionWatcher,
+	line: string,
+	fileState: TestFileState,
+	notify: boolean,
+): Promise<void> {
+	await (watcher as unknown as WatcherTestApi).processLine(
+		line,
+		fileState,
+		notify,
+	);
+}
+
 test("emits session_start from session_meta", async () => {
 	const harness = createWatcherHarness();
 
 	try {
-		await (harness.watcher as any).processLine(
+		await processLine(
+			harness.watcher,
 			JSON.stringify({
 				type: "session_meta",
 				payload: {
 					id: "session-12345678",
-					cwd: "C:\\Users\\myrla\\remote-ai",
+					cwd: harness.cwd,
 				},
 			}),
 			harness.fileState,
@@ -95,19 +125,21 @@ test("emits ai_question for request_user_input tool calls", async () => {
 	const harness = createWatcherHarness();
 
 	try {
-		await (harness.watcher as any).processLine(
+		await processLine(
+			harness.watcher,
 			JSON.stringify({
 				type: "session_meta",
 				payload: {
 					id: "session-ask-1234",
-					cwd: "C:\\Users\\myrla\\remote-ai",
+					cwd: harness.cwd,
 				},
 			}),
 			harness.fileState,
 			false,
 		);
 
-		await (harness.watcher as any).processLine(
+		await processLine(
+			harness.watcher,
 			JSON.stringify({
 				type: "response_item",
 				payload: {
@@ -135,7 +167,10 @@ test("emits ai_question for request_user_input tool calls", async () => {
 		);
 
 		assert.equal(harness.events.length, 2);
-		assert.equal((harness.events[0] as { event: string }).event, "session_start");
+		assert.equal(
+			(harness.events[0] as { event: string }).event,
+			"session_start",
+		);
 		const event = harness.events[1] as {
 			event: string;
 			data: { message?: string };
@@ -152,12 +187,13 @@ test("emits response_complete once for duplicated final answers", async () => {
 	const harness = createWatcherHarness();
 
 	try {
-		await (harness.watcher as any).processLine(
+		await processLine(
+			harness.watcher,
 			JSON.stringify({
 				type: "session_meta",
 				payload: {
 					id: "session-final-1234",
-					cwd: "C:\\Users\\myrla\\remote-ai",
+					cwd: harness.cwd,
 				},
 			}),
 			harness.fileState,
@@ -174,19 +210,14 @@ test("emits response_complete once for duplicated final answers", async () => {
 			},
 		});
 
-		await (harness.watcher as any).processLine(
-			finalLine,
-			harness.fileState,
-			true,
-		);
-		await (harness.watcher as any).processLine(
-			finalLine,
-			harness.fileState,
-			true,
-		);
+		await processLine(harness.watcher, finalLine, harness.fileState, true);
+		await processLine(harness.watcher, finalLine, harness.fileState, true);
 
 		assert.equal(harness.events.length, 2);
-		assert.equal((harness.events[0] as { event: string }).event, "session_start");
+		assert.equal(
+			(harness.events[0] as { event: string }).event,
+			"session_start",
+		);
 		const event = harness.events[1] as {
 			event: string;
 			data: { message?: string };

@@ -6,9 +6,12 @@ import {
 	ThreadAutoArchiveDuration,
 	type ThreadChannel,
 } from "discord.js";
-
-import type { PersistentStorePayload, PersistedThreadBinding, ToolName } from "../shared/types.js";
-import { PersistentSessionStore } from "../shared/persistentSessionStore.js";
+import type { PersistentSessionStore } from "../shared/persistentSessionStore.js";
+import type {
+	PersistedThreadBinding,
+	PersistentStorePayload,
+	ToolName,
+} from "../shared/types.js";
 
 export class ThreadManager {
 	private readonly sessionToThread = new Map<string, string>();

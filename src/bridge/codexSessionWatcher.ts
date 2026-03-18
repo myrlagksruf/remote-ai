@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -111,7 +112,9 @@ function parseRequestUserInputMessage(argumentsText: string): string | null {
 									return null;
 								}
 
-								return description ? `- ${label}: ${description}` : `- ${label}`;
+								return description
+									? `- ${label}: ${description}`
+									: `- ${label}`;
 							})
 							.filter((value): value is string => value !== null)
 					: [];
@@ -142,13 +145,15 @@ function isQuestionLike(text: string): boolean {
 		/\b(what|which|when|where|why|how|can you|could you|do you|should i)\b/i.test(
 			text,
 		) ||
-		/(무엇|어떤|어느|할까요|인가요|필요한가요|선택해 주세요)\s*[?？]?$/.test(text)
+		/(무엇|어떤|어느|할까요|인가요|필요한가요|선택해 주세요)\s*[?？]?$/.test(
+			text,
+		)
 	);
 }
 
 async function collectJsonlFiles(rootDir: string): Promise<string[]> {
 	const results: string[] = [];
-	let entries;
+	let entries: Dirent[];
 	try {
 		entries = await readdir(rootDir, { withFileTypes: true });
 	} catch {
@@ -183,7 +188,9 @@ async function readFirstLine(filePath: string): Promise<string | null> {
 		const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
 		const text = buffer.subarray(0, bytesRead).toString("utf8");
 		const newlineIndex = text.indexOf("\n");
-		return (newlineIndex >= 0 ? text.slice(0, newlineIndex) : text).trim() || null;
+		return (
+			(newlineIndex >= 0 ? text.slice(0, newlineIndex) : text).trim() || null
+		);
 	} finally {
 		await handle.close();
 	}
@@ -284,12 +291,18 @@ export class CodexSessionWatcher {
 		const handle = await open(filePath, "r");
 		try {
 			const buffer = Buffer.alloc(bytesToRead);
-			const { bytesRead } = await handle.read(buffer, 0, bytesToRead, state.offset);
+			const { bytesRead } = await handle.read(
+				buffer,
+				0,
+				bytesToRead,
+				state.offset,
+			);
 			state.offset += bytesRead;
 			this.diagnostics.lastProcessedFile = filePath;
 			this.diagnostics.lastProcessedOffset = state.offset;
 
-			const combined = state.remainder + buffer.subarray(0, bytesRead).toString("utf8");
+			const combined =
+				state.remainder + buffer.subarray(0, bytesRead).toString("utf8");
 			const lines = combined.split(/\r?\n/);
 			state.remainder = lines.pop() ?? "";
 
@@ -406,10 +419,7 @@ export class CodexSessionWatcher {
 		}
 	}
 
-	private handleTurnContext(
-		payload: unknown,
-		snapshot: SessionSnapshot,
-	): void {
+	private handleTurnContext(payload: unknown, snapshot: SessionSnapshot): void {
 		if (!isRecord(payload)) {
 			return;
 		}
@@ -509,7 +519,8 @@ export class CodexSessionWatcher {
 
 		await this.emitBotEvent({
 			sessionId,
-			sessionName: snapshot.sessionName ?? buildSessionName(sessionId, snapshot.cwd),
+			sessionName:
+				snapshot.sessionName ?? buildSessionName(sessionId, snapshot.cwd),
 			cwd: snapshot.cwd,
 			event: "response_complete",
 			message: text,
@@ -574,8 +585,4 @@ export class CodexSessionWatcher {
 	}
 }
 
-export {
-	extractOutputText,
-	isQuestionLike,
-	parseRequestUserInputMessage,
-};
+export { extractOutputText, isQuestionLike, parseRequestUserInputMessage };
