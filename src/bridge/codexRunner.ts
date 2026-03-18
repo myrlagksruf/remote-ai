@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import process from "node:process";
 
 import type { BridgeConfig } from "../shared/config.js";
@@ -20,6 +23,13 @@ interface StartCodexResumeResult {
 	reason?: string;
 }
 
+interface SpawnCommand {
+	command: string;
+	args: string[];
+	resolvedCodexPath: string;
+	windowsVerbatimArguments?: boolean;
+}
+
 function buildResumeArgs(
 	sessionId: string,
 	prompt: string,
@@ -32,6 +42,85 @@ function buildResumeArgs(
 		sessionId,
 		prompt,
 	];
+}
+
+function quoteWindowsArgument(argument: string): string {
+	if (!argument.length) {
+		return '""';
+	}
+
+	if (!/[\s"]/u.test(argument)) {
+		return argument;
+	}
+
+	return `"${argument.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1")}"`;
+}
+
+function findFirstExistingPath(candidates: Array<string | undefined>): string | null {
+	for (const candidate of candidates) {
+		if (candidate && existsSync(candidate)) {
+			return candidate;
+		}
+	}
+
+	return null;
+}
+
+function resolveCodexExecutable(): string {
+	const configured = process.env.CODEX_BIN?.trim();
+	if (configured) {
+		return configured;
+	}
+
+	if (process.platform !== "win32") {
+		return "codex";
+	}
+
+	const localAppData = process.env.LOCALAPPDATA?.trim();
+	const appData = process.env.APPDATA?.trim();
+
+	return (
+		findFirstExistingPath([
+			localAppData
+				? path.join(localAppData, "OpenAI", "Codex", "bin", "codex.cmd")
+				: undefined,
+			appData ? path.join(appData, "npm", "codex.cmd") : undefined,
+			appData ? path.join(appData, "npm", "codex") : undefined,
+			path.join(
+				homedir(),
+				"AppData",
+				"Roaming",
+				"npm",
+				"codex.cmd",
+			),
+		]) ?? "codex"
+	);
+}
+
+function buildSpawnCommand(resumeArgs: string[]): SpawnCommand {
+	const resolvedCodexPath = resolveCodexExecutable();
+	if (
+		process.platform === "win32" &&
+		/\.(cmd|bat)$/iu.test(resolvedCodexPath)
+	) {
+		const command = process.env.ComSpec?.trim() || "cmd.exe";
+		const commandLine = [resolvedCodexPath, ...resumeArgs]
+			.map(quoteWindowsArgument)
+			.join(" ");
+		return {
+			command,
+			args: ["/d", "/s", "/c", `"${commandLine}"`],
+			resolvedCodexPath,
+			windowsVerbatimArguments: true,
+		};
+	}
+
+	return {
+		command: resolvedCodexPath,
+		args: resumeArgs,
+		resolvedCodexPath,
+		windowsVerbatimArguments: false,
+	};
 }
 
 function logCodexResumeEvent(sessionId: string, line: string): void {
@@ -108,14 +197,16 @@ export async function startCodexResume({
 
 	const { session } = startResult;
 	const resumeArgs = buildResumeArgs(sessionId, prompt);
+	const spawnCommand = buildSpawnCommand(resumeArgs);
 	let stderr = "";
 	let stdoutRemainder = "";
 
 	try {
-		const child = spawn("codex", resumeArgs, {
+		const child = spawn(spawnCommand.command, spawnCommand.args, {
 			cwd: session.codex?.cwd,
 			env: process.env,
 			stdio: ["ignore", "pipe", "pipe"],
+			windowsVerbatimArguments: spawnCommand.windowsVerbatimArguments,
 		});
 
 		console.log(
@@ -123,7 +214,9 @@ export async function startCodexResume({
 				scope: "codex_resume",
 				sessionId,
 				cwd: session.codex?.cwd,
-				args: resumeArgs,
+				command: spawnCommand.command,
+				args: spawnCommand.args,
+				resolvedCodexPath: spawnCommand.resolvedCodexPath,
 				message: "Starting Codex resume.",
 			}),
 		);
