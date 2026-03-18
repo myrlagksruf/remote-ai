@@ -8,6 +8,7 @@
 		"check": "tsgo --noEmit",
 		"test": "tsx --test src/**/*.test.ts",
 		"lint": "biome check",
+		"lint:fix": "biome check --fix",
 		"format": "biome format",
 		"dev:bridge": "tsx watch src/bridge/index.ts",
 		"dev:bot": "tsx watch src/bot/index.ts",
