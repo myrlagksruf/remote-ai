@@ -1,276 +1,203 @@
-# 03. OpenAI Codex CLI 연동 (Hooks 시스템)
+# 03. OpenAI Codex CLI 연동 (현재 구현 기준)
 
-## Codex CLI Hooks 개요
+## 요약
 
-OpenAI Codex CLI는 v0.114.0부터 **실험적 Hooks 시스템**을 제공한다.
-Claude Code와 유사한 구조이지만 몇 가지 중요한 차이점이 있다.
+초기 설계는 Codex hooks 기반이었지만, **현재 구현은 hooks를 사용하지 않고 세션 JSONL watcher 기반**이다.
 
-### 활성화 방법
+현재 실제 흐름:
+
+1. Codex가 `~/.codex/sessions/**/*.jsonl` 에 이벤트를 append
+2. Bridge의 `CodexSessionWatcher` 가 이를 감지
+3. `session_meta`, `turn_context`, `response_item` 을 파싱
+4. Discord Bot으로 `session_start`, `ai_question`, `response_complete` 를 전달
+5. Discord thread 답장은 Bridge가 `codex exec resume --json` 으로 다시 세션에 주입
+
+---
+
+## 현재 사용하는 Codex 인터페이스
+
+### 1. 세션 파일 감시
+
+감시 경로:
+
+```text
+~/.codex/sessions/**/*.jsonl
+```
+
+사용 이유:
+
+- Codex hooks에 의존하지 않고도 세션 상태를 읽을 수 있음
+- 최종 응답과 질문 감지를 JSONL append만으로 처리 가능
+- `resume` 이후 결과도 같은 파일에서 이어서 추적 가능
+
+### 2. 후속 입력 실행
+
+Bridge는 Discord에서 온 답장을 아래 명령으로 실행한다.
 
 ```bash
-codex -c features.codex_hooks=true
+codex exec resume --dangerously-bypass-approvals-and-sandbox --json <session_id> "<prompt>"
 ```
 
-> Discord thread 자동 생성 대상은 위처럼 **hooks가 활성화된 Codex 세션만**이다.
-> 일반 Codex CLI 실행 전체를 전역 감지하는 구조는 아니다.
+설명:
 
-또는 설정 파일에 영구 적용:
+- 기존 Codex 세션에 다음 user prompt를 넣는다
+- stdout 이벤트는 로깅만 하고, 실제 Discord 전송은 watcher가 JSONL append를 보고 처리한다
+- 한 세션에서 동시 resume은 막는다
 
-**`~/.codex/config.toml` (또는 프로젝트 `.codex/config.toml`):**
-```toml
-[features]
-codex_hooks = true
-```
+### 3. `/plan`
 
-전역 hook 설정 파일을 사용할 경우 위치는 `~/.codex/hooks.json` 이다.
-프로젝트 로컬 `.codex/hooks.json`을 사용할 수도 있지만, 그 경우 Codex를 해당 프로젝트 기준으로 실행해야 한다.
+Discord의 `/plan` 은 새 Codex 세션을 만드는 기능이 아니다.
+
+- 기존 mapped thread 안에서만 실행 가능
+- 현재 thread에 연결된 Codex 세션으로 planning-only 프롬프트를 보냄
+- 실제 응답은 기존과 동일하게 watcher가 Discord thread에 다시 보냄
 
 ---
 
-## 지원 Hook 이벤트
+## JSONL 레코드 구조
 
-| Hook 이름 | 발생 시점 | Claude 대응 Hook |
-|-----------|-----------|-----------------|
-| `SessionStart` | 세션 시작 시 | *(없음)* |
-| `Stop` | 턴(응답) 완료 시 | `Stop` |
-| `AfterToolUse` | 도구 실행 완료 후 | `PostToolUse` |
+현재 구현에서 의미 있게 읽는 타입은 아래뿐이다.
 
-> **중요 차이점**: Codex는 **`PreToolUse`에 해당하는 Hook이 없다.**
-> 도구 실행 전에 exit code로 차단하는 기능을 지원하지 않는다.
-> 따라서 Codex의 **권한 제어는 Claude와 다른 방식**으로 처리해야 한다. ([06-permission-system.md](./06-permission-system.md) 참조)
+### `session_meta`
 
----
+역할:
 
-## Hook 설정 파일
+- 세션 ID 식별
+- working directory 식별
+- 세션 이름 생성에 필요한 기본 정보 확보
 
-**위치:** `.codex/hooks.json` (프로젝트 루트 또는 홈 디렉토리)
+주요 필드:
 
 ```json
 {
-  "hooks": {
-    "SessionStart": [
+  "type": "session_meta",
+  "payload": {
+    "id": "session-id",
+    "cwd": "/workspace/path"
+  }
+}
+```
+
+### `turn_context`
+
+역할:
+
+- 현재 turn이 `default` 인지 `plan` 인지 구분
+
+주요 필드:
+
+```json
+{
+  "type": "turn_context",
+  "payload": {
+    "collaboration_mode": {
+      "mode": "plan"
+    }
+  }
+}
+```
+
+### `response_item`
+
+역할:
+
+- `request_user_input` 호출 감지
+- assistant final answer 감지
+
+질문 감지 예시:
+
+```json
+{
+  "type": "response_item",
+  "payload": {
+    "type": "function_call",
+    "name": "request_user_input",
+    "call_id": "call-1",
+    "arguments": "{\"questions\":[...]}"
+  }
+}
+```
+
+최종 응답 감지 예시:
+
+```json
+{
+  "type": "response_item",
+  "payload": {
+    "type": "message",
+    "role": "assistant",
+    "phase": "final_answer",
+    "content": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash /path/to/hooks/codex-hook.sh session_start",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash /path/to/hooks/codex-hook.sh stop",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "AfterToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash /path/to/hooks/codex-hook.sh after_tool",
-            "timeout": 10
-          }
-        ]
+        "text": "최종 응답"
       }
     ]
   }
 }
 ```
 
-`command`에는 실제 절대경로가 들어가야 한다.
-예:
-```json
-{
-  "type": "command",
-  "command": "bash /Users/you/remote-ai/hooks/codex-hook.sh session_start",
-  "timeout": 10
-}
+---
+
+## 재시작 복구와의 관계
+
+현재 Codex 재시작 복구는 두 층으로 나뉜다.
+
+### 1. thread-session 매핑 복구
+
+파일:
+
+```text
+data/thread-bindings.json
 ```
+
+역할:
+
+- 기존 Discord thread가 어떤 sessionId와 연결되어 있었는지 복구
+- bot과 bridge가 재시작 후 최소 상태를 다시 세움
+
+### 2. 세션 JSONL 추적 복구
+
+필수 조건:
+
+- watcher가 기존 세션 파일의 첫 줄 `session_meta` 를 읽어 sessionId를 다시 알아내야 함
+
+주의:
+
+- `data/thread-bindings.json` 만 있다고 끝이 아님
+- watcher가 해당 Codex 세션 파일을 제대로 prime하지 못하면, `resume` 성공 후에도 Discord에 응답이 안 온다
 
 ---
 
-## Hook 스크립트 (`hooks/codex-hook.sh`)
+## 현재 구현된 것
 
-Codex도 Claude와 동일하게 **stdin으로 JSON 데이터**를 전달한다.
-macOS에서는 hook 실행 환경의 `PATH`가 일반 터미널과 다를 수 있으므로, 스크립트에서 `node` 경로를 명시적으로 찾는 편이 안전하다.
-
-```bash
-#!/bin/bash
-
-EVENT_TYPE=$1
-BRIDGE_URL="http://localhost:3000/hook/codex"
-BRIDGE_SECRET="your_secret"
-
-# stdin에서 Codex가 보내는 JSON 읽기
-INPUT=$(cat)
-
-# Bridge Server로 POST
-curl -s -X POST "$BRIDGE_URL" \
-  -H "Content-Type: application/json" \
-  -H "X-Bridge-Secret: $BRIDGE_SECRET" \
-  -d "{
-    \"tool\": \"codex\",
-    \"event\": \"$EVENT_TYPE\",
-    \"sessionId\": \"$CODEX_SESSION_ID\",
-    \"data\": $INPUT
-  }"
-```
-
-## Discord 채널 요구사항
-
-`DISCORD_CHANNEL_ID`는 봇이 실제 접근 가능한 **일반 텍스트 채널**이어야 하며, 이 채널이 session thread의 부모 채널이 된다.
-봇에는 최소한 다음 권한이 필요하다.
-
-- View Channel
-- Send Messages
-- Create Public Threads
-- Send Messages in Threads
+- 세션 JSONL watcher
+- `session_meta` / `turn_context` / `response_item` 파싱
+- `request_user_input` → `ai_question`
+- assistant final answer → `response_complete`
+- Discord 답장 → `codex exec resume`
+- `/plan` slash command
+- restart 후 JSON binding 복구
+- 긴 `session_meta` 첫 줄도 newline까지 읽도록 보완
 
 ---
 
-## 각 Hook의 stdin JSON 구조
+## 현재 미구현
 
-### SessionStart
-```json
-{
-  "session_id": "xyz789",
-  "context": "세션 시작 시 제공된 컨텍스트 정보"
-}
-```
-→ Bridge: 세션 등록, Discord Thread 생성
-
-**SessionStart의 특수 기능:**
-Codex의 `SessionStart` hook은 stdout으로 출력한 내용이 모델 컨텍스트에 주입된다.
-이를 활용해 Bridge가 현재 권한 모드 등의 정보를 Codex에 주입할 수 있다.
-
-```bash
-# hook 스크립트에서 모델에 컨텍스트 주입 예시
-echo "현재 권한 모드: manual. 모든 도구 실행 전 사용자 승인 필요."
-```
+- Codex hooks 기반 수신 (`POST /hook/codex`)
+- `.codex/hooks.json` 기반 공식 hook 연동
+- Codex tool-level permission 중계
+- Codex 세션 생성 자체를 Discord에서 시작하는 기능
+- pending request 상태의 restart 복구
 
 ---
 
-### Stop (최종 응답 완료)
-```json
-{
-  "session_id": "xyz789",
-  "output": "AI의 최종 응답 텍스트"
-}
-```
-→ Bridge: Discord Thread에 최종 응답 전송
+## 문서 해석 주의
 
-### Discord Thread 후속 입력
+이 폴더 안의 다른 오래된 문서에는 Codex hooks 기반 설명이 남아 있을 수 있다.
+현재 실제 코드의 source of truth는 아래 파일들이다.
 
-Codex 세션이 hook으로 Bridge에 등록된 뒤에는 Discord thread에서 일반 텍스트를 보내 같은 세션의 다음 턴을 실행할 수 있다.
-
-구현 방식:
-```bash
-codex exec resume <session_id> "<discord thread message>"
-```
-
-- Bridge가 thread 메시지를 받으면 위 명령을 실행한다.
-- 최종 응답은 `codex exec resume` stdout이 아니라 이후 발생하는 `Stop` hook으로 Discord에 전송한다.
-- 한 세션에서 동시에 여러 `resume` 실행은 허용하지 않는다.
-- 실시간 승인 프롬프트(`[y/N]`) 중계는 이 단계 범위에 포함하지 않는다.
-
----
-
-### AfterToolUse (도구 실행 후)
-```json
-{
-  "session_id": "xyz789",
-  "tool_name": "shell",
-  "tool_input": { "command": "npm test" },
-  "tool_output": { "stdout": "...", "exit_code": 0 }
-}
-```
-→ Bridge: 기본적으로 Discord에 전송하지 않음 (Stop에서만 최종 결과 전송)
-
----
-
-## Claude와의 핵심 차이 비교
-
-| 항목 | Claude Code | Codex CLI |
-|------|-------------|-----------|
-| Hook 설정 위치 | `~/.claude/settings.json` | `.codex/hooks.json` |
-| Session ID 환경변수 | `CLAUDE_SESSION_ID` | `CODEX_SESSION_ID` |
-| PreToolUse (차단) | ✅ 지원 (exit code 2) | ❌ 미지원 |
-| PostToolUse | ✅ `PostToolUse` | ✅ `AfterToolUse` |
-| 세션 완료 | ✅ `Stop` | ✅ `Stop` |
-| 세션 시작 | ❌ (첫 이벤트로 감지) | ✅ `SessionStart` |
-| Hook 활성화 | 기본 활성 | `features.codex_hooks=true` 필요 |
-
----
-
-## Codex 권한 제어 대안 방법
-
-PreToolUse가 없으므로 Codex의 권한 제어는 다음 방식을 사용한다:
-
-### 방법 1: Approval Policy 플래그
-Codex CLI는 실행 시 권한 정책을 설정하는 플래그를 제공한다:
-
-| 플래그 | 의미 |
-|--------|------|
-| `--approval-policy auto` | 모든 명령 자동 실행 |
-| `--approval-policy on-failure` | 실패 시만 승인 |
-| `--approval-policy never` | 항상 승인 요청 (기본) |
-
-`never` 모드에서 Codex는 터미널에서 직접 `[y/N]` 프롬프트를 표시한다.
-이 경우 wrapper 방식이 필요해질 수 있다.
-
-### 방법 2: SessionStart 컨텍스트 주입
-`SessionStart` hook stdout으로 권한 관련 지시를 모델에 주입한다:
-
-```bash
-# 현재 권한 설정을 모델에 알림
-PERMISSION_MODE=$(cat ~/.remote-ai/codex-permission-mode 2>/dev/null || echo "default")
-echo "권한 모드: $PERMISSION_MODE. 파괴적 작업 실행 전 사용자 확인 필요."
-```
-
-### 방법 3: 하이브리드 (권장)
-- 권한 모드 `auto`: `--approval-policy auto` 플래그로 실행
-- 권한 모드 `manual`: `--approval-policy never` 플래그로 실행 (터미널 직접 응답 필요)
-- 상세 알림은 `Stop`, `AfterToolUse` hook으로 Discord에 전달
-
-> **결론**: Codex에서의 세밀한 도구별 권한 차단은 현재 hooks로 불가능하다.
-> `approval-policy` 플래그로 전체 모드만 제어하고, 실시간 알림에 집중한다.
-
----
-
-## 세션 이름 추출
-
-Codex는 `SessionStart` hook에서 세션 정보를 제공한다.
-세션 이름 구성:
-1. Codex 실행 시 첫 번째 인자(프롬프트) 앞 30자를 세션 이름으로 사용
-2. 없으면 `codex-<session_id 앞 8자리>` 형태로 자동 생성
-
----
-
-## 공통 이벤트 포맷 (Bridge 정규화)
-
-Claude와 Codex 이벤트를 Bridge에서 동일한 포맷으로 정규화:
-
-```ts
-interface BridgeEvent {
-  tool: 'claude' | 'codex';
-  sessionId: string;
-  sessionName: string;
-  event: 'session_start' | 'session_end' | 'response_complete' | 'ai_question' | 'after_tool';
-  data: {
-    message?: string;
-    toolName?: string;
-    toolInput?: Record<string, unknown>;
-    toolOutput?: Record<string, unknown>;
-  };
-  timestamp: string;
-  requestId?: string;
-}
-```
+- `src/bridge/codexSessionWatcher.ts`
+- `src/bridge/codexRunner.ts`
+- `src/bridge/sessionManager.ts`
+- `src/bot/threadManager.ts`
+- `src/bot/commandHandler.ts`
