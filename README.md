@@ -27,7 +27,7 @@ Start Codex in full-access mode only:
 codex --dangerously-bypass-approvals-and-sandbox
 ```
 
-The bridge also resumes Codex with `codex exec resume --dangerously-bypass-approvals-and-sandbox --json`, so resumed turns stay in the same mode.
+The bridge also resumes Codex with `codex exec resume --dangerously-bypass-approvals-and-sandbox --json <session_id> -` and sends the follow-up prompt through stdin, so multiline Discord replies survive shell parsing on every platform.
 
 Persistent Discord thread mappings are stored in [data/thread-bindings.json](C:\Users\myrla\remote-ai\data\thread-bindings.json). The file is intentionally human-editable and is used for restart recovery. Invalid entries are skipped on boot.
 
@@ -37,7 +37,7 @@ Cross-platform notes:
 - `CODEX_HOME` defaults to the current user's `~/.codex`.
 - `PROJECT_DATA_DIR` can be set to move persisted mapping files outside the repo default `./data`.
 - `CODEX_BIN` can be set to the exact Codex executable path if `codex` is not discoverable in `PATH`.
-- Windows uses extra `.cmd` handling in the bridge; Linux and macOS use normal `spawn("codex", ...)` behavior unless `CODEX_BIN` is set.
+- Windows uses extra `.cmd` handling in the bridge; prompts are still streamed over stdin instead of command-line arguments to preserve multiline input.
 
 ## What Gets Sent To Discord
 

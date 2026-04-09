@@ -35,12 +35,13 @@
 Bridge는 Discord에서 온 답장을 아래 명령으로 실행한다.
 
 ```bash
-codex exec resume --dangerously-bypass-approvals-and-sandbox --json <session_id> "<prompt>"
+codex exec resume --dangerously-bypass-approvals-and-sandbox --json <session_id> -
 ```
 
 설명:
 
 - 기존 Codex 세션에 다음 user prompt를 넣는다
+- 프롬프트 본문은 stdin으로 전달해서 Discord 멀티라인 입력이 shell quoting 단계에서 잘리지 않게 한다
 - stdout 이벤트는 로깅만 하고, 실제 Discord 전송은 watcher가 JSONL append를 보고 처리한다
 - 한 세션에서 동시 resume은 막는다
 

@@ -30,14 +30,14 @@ interface SpawnCommand {
 	windowsVerbatimArguments?: boolean;
 }
 
-function buildResumeArgs(sessionId: string, prompt: string): string[] {
+export function buildResumeArgs(sessionId: string): string[] {
 	return [
 		"exec",
 		"resume",
 		"--dangerously-bypass-approvals-and-sandbox",
 		"--json",
 		sessionId,
-		prompt,
+		"-",
 	];
 }
 
@@ -189,7 +189,7 @@ export async function startCodexResume({
 	}
 
 	const { session } = startResult;
-	const resumeArgs = buildResumeArgs(sessionId, prompt);
+	const resumeArgs = buildResumeArgs(sessionId);
 	const spawnCommand = buildSpawnCommand(resumeArgs);
 	let stderr = "";
 	let stdoutRemainder = "";
@@ -198,7 +198,7 @@ export async function startCodexResume({
 		const child = spawn(spawnCommand.command, spawnCommand.args, {
 			cwd: session.codex?.cwd,
 			env: process.env,
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: ["pipe", "pipe", "pipe"],
 			windowsVerbatimArguments: spawnCommand.windowsVerbatimArguments,
 		});
 
@@ -232,6 +232,11 @@ export async function startCodexResume({
 				stderr = stderr.slice(-4000);
 			}
 		});
+
+		child.stdin.on("error", () => {
+			// Ignore broken pipe errors when Codex exits before consuming stdin.
+		});
+		child.stdin.end(prompt);
 
 		child.on("error", (error) => {
 			sessionManager.markCodexResumeFinished(sessionId);
